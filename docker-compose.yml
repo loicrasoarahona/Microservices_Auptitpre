@@ -1,0 +1,119 @@
+services:
+  auth_manager:
+    build:
+      context: ./Auth_Manager
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DB_NAME: auth_manager
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Postgres tourne nativement sur la machine hôte (pas en conteneur) :
+      # host.docker.internal est le hostname fourni par Docker pour l'atteindre.
+      DB_HOST: host.docker.internal
+      DB_PORT: 5432
+      JWT_PRIVATE_KEY_PATH: keys/private.key
+      JWT_PUBLIC_KEY_PATH: keys/public.key
+      JWT_EXPIRES_IN: 5h
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Bind mount : réutilise les clés déjà présentes sur l'hôte
+      # (Auth_Manager/keys/) au lieu d'en générer de nouvelles dans le conteneur.
+      - ./Auth_Manager/keys:/app/keys
+    networks:
+      - backend
+    restart: unless-stopped
+    # Pas de "ports:" publié volontairement : auth_manager n'est joignable
+    # que depuis les autres conteneurs du réseau "backend" (via son nom,
+    # http://auth_manager:3002), jamais directement depuis l'hôte.
+    # Pour déboguer en direct, décommenter temporairement :
+    # ports:
+    #   - "3002:3002"
+
+  school_students:
+    build:
+      context: ./School_students
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+      DB_NAME: school_students
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: host.docker.internal
+      DB_PORT: 5432
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backend
+    restart: unless-stopped
+    ports:
+      - "3004:3004" # TODO : enlever la redirection de port
+    # Pas de "ports:" publié volontairement, même logique que les autres
+    # services : seul le gateway est exposé à l'hôte.
+
+  school_data_connection:
+    build:
+      context: ./School_data_connection
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      SUBSTITUTE_STUDENTS_BASE_URL: http://school_students:3004
+    depends_on:
+      - school_students
+    networks:
+      - backend
+    restart: unless-stopped
+
+  gestion_absence:
+    build:
+      context: ./Gestion_absence
+    # Réutilise les secrets déjà présents dans Gestion_absence/.env (Gmail,
+    # Orange SMS...) plutôt que de les dupliquer ici.
+    env_file:
+      - ./Gestion_absence/.env
+    environment:
+      NODE_ENV: development
+      DB_HOST: host.docker.internal
+      # Appel direct service-à-service (pas via le gateway).
+      SCHOOL_STUDENTS_URL: http://school_data_connection:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - school_data_connection
+    networks:
+      - backend
+    restart: unless-stopped
+    # Pas de "ports:" publié volontairement, même logique que les autres
+    # services : seul le gateway est exposé à l'hôte.
+
+  gateway:
+    build:
+      context: ./Coolify_Gateway
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+      # Résolution par le DNS interne de Docker : le nom du service fait
+      # office de hostname au sein du réseau "backend".
+      AUTH_MANAGER_URL: http://auth_manager:3002
+      SCHOOL_STUDENTS_URL: http://school_students:3004
+      GESTION_ABSENCE_URL: http://gestion_absence:3005
+      JWT_PUBLIC_KEY_PATH: keys/public.key
+    volumes:
+      # Clé publique d'Auth_Manager, en lecture seule : la gateway vérifie
+      # les tokens mais n'en signe jamais.
+      - ./Auth_Manager/keys/public.key:/app/keys/public.key:ro
+    ports:
+      - "3003:3003"
+    depends_on:
+      - auth_manager
+      - school_students
+      - gestion_absence
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
