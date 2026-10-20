@@ -69,15 +69,24 @@ services:
   gestion_absence:
     build:
       context: ./Gestion_absence
-    # Réutilise les secrets déjà présents dans Gestion_absence/.env (Gmail,
-    # Orange SMS...) plutôt que de les dupliquer ici.
-    env_file:
-      - ./Gestion_absence/.env
     environment:
       NODE_ENV: development
+      PORT: 3005
+      DB_NAME: gestion_absence
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: host.docker.internal
       # Appel direct service-à-service (pas via le gateway).
       SCHOOL_STUDENTS_URL: http://school_data_connection:3000
+      SCHOOL_PHONE_NUMBER: ${SCHOOL_PHONE_NUMBER}
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD}
+      ORANGE_CLIENT_ID: ${ORANGE_CLIENT_ID}
+      ORANGE_CLIENT_SECRET: ${ORANGE_CLIENT_SECRET}
+      ORANGE_AUTHORIZATION_HEADER: ${ORANGE_AUTHORIZATION_HEADER}
+      ORANGE_TOKEN_URL: https://api.orange.com/oauth/v3/token
+      ORANGE_SMS_URL: https://api.orange.com/smsmessaging/v1
+      ORANGE_SENDER_ADDRESS: ${ORANGE_SENDER_ADDRESS}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
